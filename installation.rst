@@ -671,6 +671,17 @@ approach (``--nv`` only) is not sufficient for GPU support under WSL2.
 Mac
 ===
 
+{Project} runs on macOS in two ways, both booting a persistent Linux VM that
+mounts your home directory automatically. `Lima <https://lima-vm.io>`_ is the
+established option. It works on both Apple Silicon and Intel Macs, using Apple's
+native virtualization on Apple Silicon and falling back to QEMU on Intel
+hardware. Apple's ``container`` tool is a newer, Apple Silicon only alternative
+that provides the same kind of always-on Linux environment. Both approaches are
+described below.
+
+Lima
+----
+
 {Project} is available via `Lima <https://lima-vm.io>`_ (installable with `Homebrew
 <https://brew.sh>`_ or manually)
 
@@ -701,7 +712,7 @@ that can be accessed both from the host and in the guest.
 Previously there was a mount in `/tmp/lima`, it was removed in Lima 2.0.
 
 GPU Support
------------
+^^^^^^^^^^^
 
 Lima supports using an Apple GPU from the Linux environment, with `krunkit <https://github.com/containers/krunkit>`_:
 
@@ -743,7 +754,7 @@ As an alternative to Lima, you can run {Project} on macOS using Apple's
 Your Mac home directory is automatically mounted read-write inside the VM at the same path,
 so SIF files and project directories work transparently from both the host and the guest.
 
-This requires macOS 15 or later on Apple Silicon, with the Apple ``container``
+This requires macOS 26 or later on Apple Silicon, with the Apple ``container``
 tool installed from the ``.pkg`` release.
 
 Setup
