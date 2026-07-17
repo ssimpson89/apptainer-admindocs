@@ -735,6 +735,185 @@ After that, you should have full access to ``/dev/dri`` also from the containers
 
 You can run `llama.cpp <https://github.com/ggml-org/llama.cpp>`_. with ``docker://quay.io/slopezpa/fedora-vgpu-llama``
 
+Apple container
+---------------
+
+As an alternative to Lima, you can run {Project} on macOS using Apple's
+`container machine <https://github.com/apple/container/blob/main/docs/container-machine.md>`_ tool.
+Your Mac home directory is automatically mounted read-write inside the VM at the same path,
+so SIF files and project directories work transparently from both the host and the guest.
+
+This requires macOS 15 or later on Apple Silicon, with the Apple ``container``
+tool installed from the ``.pkg`` release.
+
+Setup
+^^^^^
+
+Download and install the ``.pkg`` from the `container releases page
+<https://github.com/apple/container/releases>`_, then start the system:
+
+.. code:: console
+
+   $ container system start
+
+Build the machine image from your container definition file:
+
+.. code:: console
+
+   $ container build -t local/apptainer-rocky:latest .
+
+As an example, the following ``Containerfile`` builds a minimal Rocky Linux 9 image with {Project} installed:
+
+.. code:: dockerfile
+
+   FROM rockylinux/rockylinux:9
+
+   ENV container=container
+
+   RUN dnf -y install epel-release && \
+      dnf swap -y curl-minimal curl && \
+      dnf -y install \
+         systemd systemd-libs dbus openssh-server sudo \
+         ca-certificates wget git procps-ng vim-minimal man-db less \
+         iproute iputils \
+         apptainer \
+         squashfs-tools squashfuse fuse-overlayfs fuse3 \
+         libseccomp shadow-utils cryptsetup openssl fakeroot && \
+      dnf clean all
+
+   RUN echo 'ALL ALL=(ALL:ALL) NOPASSWD: ALL' > /etc/sudoers.d/nopasswd && \
+      chmod 0440 /etc/sudoers.d/nopasswd
+
+   RUN mkdir -p /var/run/sshd && ssh-keygen -A && \
+      sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config && \
+      systemctl enable sshd
+
+   RUN mkdir -p /etc/udev/rules.d && \
+      echo 'KERNEL=="fuse", MODE="0666"' > /etc/udev/rules.d/99-fuse.rules && \
+      printf '[Unit]\nDescription=Fix /dev/fuse permissions\nDefaultDependencies=no\nAfter=systemd-udevd.service\n\n[Service]\nType=oneshot\nExecStart=/usr/bin/chmod 0666 /dev/fuse\n\n[Install]\nWantedBy=sysinit.target\n' > /etc/systemd/system/fix-fuse-perms.service && \
+      systemctl enable fix-fuse-perms.service
+
+   RUN >/etc/machine-id && \
+      mkdir -p /var/lib/dbus && >/var/lib/dbus/machine-id
+
+   RUN systemctl set-default multi-user.target && \
+      systemctl mask \
+         dev-hugepages.mount \
+         sys-fs-fuse-connections.mount \
+         systemd-update-utmp.service \
+         systemd-tmpfiles-setup.service \
+         console-getty.service \
+         getty@.service \
+         systemd-logind.service
+
+   STOPSIGNAL SIGRTMIN+3
+   CMD ["/sbin/init"]
+
+
+Create the machine:
+
+.. code:: console
+
+   $ container machine create local/apptainer-rocky:latest --name apptainer
+
+Then test it:
+
+.. code:: console
+
+   $ container machine run -n apptainer -- apptainer --version
+   $ container machine run -n apptainer -- apptainer pull docker://rockylinux/rockylinux:9
+   $ container machine run -n apptainer -- apptainer exec rockylinux_9.sif cat /etc/os-release
+
+Shell integration (optional)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+To make ``apptainer`` and ``./app.sif`` work directly from your Mac terminal,
+you can add wrapper functions to your shell. These examples use zsh, the macOS
+default shell.
+
+Add the wrapper functions:
+
+.. code:: bash
+
+   cat > ~/.apptainer-machine.zsh << 'EOF'
+   APPTAINER_MACHINE="${APPTAINER_MACHINE:-apptainer}"
+
+   apptainer() {
+     command container machine run -n "$APPTAINER_MACHINE" -- apptainer "$@"
+   }
+
+   singularity() {
+     command container machine run -n "$APPTAINER_MACHINE" -- apptainer "$@"
+   }
+   EOF
+
+Add this line to the bottom of your ``~/.zshrc``:
+
+.. code:: bash
+
+   echo '[ -f ~/.apptainer-machine.zsh ] && . ~/.apptainer-machine.zsh' >> ~/.zshrc
+
+Then reload your shell with ``source ~/.zshrc``.
+
+SIF files contain a ``#!/usr/bin/env run-singularity`` shebang. To make
+``./app.sif`` executable directly, create a shim that routes it through the
+container machine:
+
+.. code:: bash
+
+   mkdir -p ~/.local/bin
+
+   cat > ~/.local/bin/run-singularity << 'SHIM'
+   #!/bin/sh
+   MACHINE_NAME="${APPTAINER_MACHINE:-apptainer}"
+   exec container machine run -n "$MACHINE_NAME" -- apptainer run "$@"
+   SHIM
+   chmod +x ~/.local/bin/run-singularity
+
+If ``~/.local/bin`` isn't already in your ``PATH``, add it in ``~/.zshrc``:
+
+.. code:: bash
+
+   export PATH="$HOME/.local/bin:$PATH"
+
+With that in place, these work from anywhere under your home directory:
+
+.. code:: console
+
+   $ apptainer pull docker://rockylinux/rockylinux:9
+   $ ./rockylinux_9.sif cat /etc/rocky-release
+
+Troubleshooting
+^^^^^^^^^^^^^^^
+
+**DNS resolution fails during build or inside containers.** If containers
+can't resolve hostnames (for example ``Could not resolve host:
+mirrors.rockylinux.org``), something other than the macOS ``mDNSResponder`` is
+likely bound to port 53. Common culprits are dnsmasq, dnscrypt-proxy, Mullvad
+VPN, or other VPN software. This is a `known issue
+<https://github.com/apple/container/issues/283>`_ with Apple's container tool.
+Check what is on port 53:
+
+.. code:: console
+
+   $ sudo lsof -i :53
+
+If you see anything other than ``mDNSResponder``, stop or uninstall the
+conflicting service and reboot. A reboot is required because ``mDNSResponder``
+won't reclaim port 53 until the system reinitializes (``sudo killall -HUP
+mDNSResponder`` alone is not sufficient). After rebooting, run ``container
+system start`` again.
+
+**First container machine run fails with "Operation not supported by
+device".** This is normal on the very first boot after ``container machine
+create``. The machine needs a moment to provision your user account. Wait a
+few seconds and try again.
+
+**"Could not remove bundle: errSymlink is not user-visible" after apptainer
+pull.** This is cosmetic and safe to ignore. The SIF file is already built
+successfully. The error happens during temp directory cleanup when Apptainer
+encounters symlinks on the virtiofs mount.
+
 **********************
  Running inside Docker
 **********************
