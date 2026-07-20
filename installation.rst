@@ -784,8 +784,8 @@ As an example, the following ``Containerfile`` builds a minimal Rocky Linux 9 im
    RUN dnf -y install epel-release && \
       dnf swap -y curl-minimal curl && \
       dnf -y install \
-         systemd systemd-libs dbus openssh-server sudo \
-         ca-certificates wget git procps-ng vim-minimal man-db less \
+         systemd systemd-libs dbus sudo \
+         ca-certificates wget procps-ng vim-minimal man-db \
          iproute iputils \
          apptainer \
          squashfs-tools squashfuse fuse-overlayfs fuse3 \
@@ -794,10 +794,6 @@ As an example, the following ``Containerfile`` builds a minimal Rocky Linux 9 im
 
    RUN echo 'ALL ALL=(ALL:ALL) NOPASSWD: ALL' > /etc/sudoers.d/nopasswd && \
       chmod 0440 /etc/sudoers.d/nopasswd
-
-   RUN mkdir -p /var/run/sshd && ssh-keygen -A && \
-      sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config && \
-      systemctl enable sshd
 
    RUN mkdir -p /etc/udev/rules.d && \
       echo 'KERNEL=="fuse", MODE="0666"' > /etc/udev/rules.d/99-fuse.rules && \
@@ -850,11 +846,16 @@ Add the wrapper functions:
    APPTAINER_MACHINE="${APPTAINER_MACHINE:-apptainer}"
 
    apptainer() {
-     command container machine run -n "$APPTAINER_MACHINE" -- apptainer "$@"
+     local APPTAINER_BINDPATH="$APPTAINER_BINDPATH"
+     if [ -n "$APPTAINER_BINDPATH" ]; then
+       APPTAINER_BINDPATH="$APPTAINER_BINDPATH,"
+     fi
+     APPTAINER_BINDPATH="$APPTAINER_BINDPATH$HOME"
+     command container machine run -n "$APPTAINER_MACHINE" -e "APPTAINER_BINDPATH=$APPTAINER_BINDPATH" -- apptainer "$@"
    }
 
    singularity() {
-     command container machine run -n "$APPTAINER_MACHINE" -- apptainer "$@"
+     apptainer "$@"
    }
    EOF
 
@@ -876,8 +877,8 @@ container machine:
 
    cat > ~/.local/bin/run-singularity << 'SHIM'
    #!/bin/sh
-   MACHINE_NAME="${APPTAINER_MACHINE:-apptainer}"
-   exec container machine run -n "$MACHINE_NAME" -- apptainer run "$@"
+   . ~/.apptainer-machine.zsh
+   apptainer run "$@"
    SHIM
    chmod +x ~/.local/bin/run-singularity
 
