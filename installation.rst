@@ -777,7 +777,7 @@ As an example, the following ``Containerfile`` builds a minimal Rocky Linux 9 im
 
 .. code:: dockerfile
 
-   FROM rockylinux/rockylinux:9
+   FROM docker.io/rockylinux/rockylinux:9
 
    RUN dnf -y install epel-release && \
       dnf swap -y curl-minimal curl && \
