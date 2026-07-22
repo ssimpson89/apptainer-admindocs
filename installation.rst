@@ -779,8 +779,6 @@ As an example, the following ``Containerfile`` builds a minimal Rocky Linux 9 im
 
    FROM rockylinux/rockylinux:9
 
-   ENV container=container
-
    RUN dnf -y install epel-release && \
       dnf swap -y curl-minimal curl && \
       dnf -y install \
@@ -792,9 +790,11 @@ As an example, the following ``Containerfile`` builds a minimal Rocky Linux 9 im
          libseccomp shadow-utils cryptsetup openssl fakeroot && \
       dnf clean all
 
-   RUN echo 'ALL ALL=(ALL:ALL) NOPASSWD: ALL' > /etc/sudoers.d/nopasswd && \
-      chmod 0440 /etc/sudoers.d/nopasswd
+   # Apple already grants your primary user passwordless sudo; uncomment for others.
+   # RUN echo 'ALL ALL=(ALL:ALL) NOPASSWD: ALL' > /etc/sudoers.d/nopasswd && \
+   #    chmod 0440 /etc/sudoers.d/nopasswd
 
+   # /dev/fuse is root-only by default; unprivileged Apptainer mounts need it writable.
    RUN mkdir -p /etc/udev/rules.d && \
       echo 'KERNEL=="fuse", MODE="0666"' > /etc/udev/rules.d/99-fuse.rules && \
       printf '[Unit]\nDescription=Fix /dev/fuse permissions\nDefaultDependencies=no\nAfter=systemd-udevd.service\n\n[Service]\nType=oneshot\nExecStart=/usr/bin/chmod 0666 /dev/fuse\n\n[Install]\nWantedBy=sysinit.target\n' > /etc/systemd/system/fix-fuse-perms.service && \
